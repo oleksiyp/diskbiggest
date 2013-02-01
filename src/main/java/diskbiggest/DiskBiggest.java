@@ -175,7 +175,7 @@ public class DiskBiggest {
         } catch (IOException e) {
             root = root.getAbsoluteFile();
         }
-        System.out.println("Top " + n + " file and directories in " + root);
+        System.out.println("Top " + n + " directories in " + root);
         DiskBiggest diskBiggest = new DiskBiggest(n);
         diskBiggest.outputOnShutdown();
         diskBiggest.progress.start();
