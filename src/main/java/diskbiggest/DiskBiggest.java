@@ -1,6 +1,7 @@
 package diskbiggest;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.NavigableSet;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicLong;
@@ -168,7 +169,12 @@ public class DiskBiggest {
         if (args.length >= 2) {
             n = Integer.parseInt(args[1]);
         }
-        File root = new File(args[0]).getAbsoluteFile();
+        File root = new File(args[0]);
+        try {
+            root = root.getCanonicalFile();
+        } catch (IOException e) {
+            root = root.getAbsoluteFile();
+        }
         System.out.println("Top " + n + " file and directories in " + root);
         DiskBiggest diskBiggest = new DiskBiggest(n);
         diskBiggest.outputOnShutdown();
