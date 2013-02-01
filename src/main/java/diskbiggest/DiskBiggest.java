@@ -68,7 +68,7 @@ public class DiskBiggest {
     }
 
     class Progress implements Runnable {
-        public static final int PATH_SZ = 35;
+        public static final int PATH_SZ = 30;
         public static final int MSG_SZ = 78;
         private AtomicLong totalSize = new AtomicLong();
         private AtomicLong totalDirs = new AtomicLong();
@@ -100,7 +100,7 @@ public class DiskBiggest {
             if (p == null) p = "";
             if (p.length() > PATH_SZ) p = p.substring(0, PATH_SZ) + "...";
 
-            String msg = "Total scanned: " + sizeShortcut(totalSize.longValue(), true) +
+            String msg = "Scanned: " + sizeShortcut(totalSize.longValue(), true) +
                     " dirs: " + totalDirs.longValue() + (!fin ? " " + p : "");
             if (msg.length() < MSG_SZ) {
                 msg += spaces.substring(msg.length());
@@ -159,6 +159,14 @@ public class DiskBiggest {
                 File[] files = currentFile.listFiles();
                 if (files != null) {
                     for (File f : files) {
+                        try {
+                            if (isSymlink(f)) {
+                                continue;
+                            }
+                        } catch (Throwable e) {
+                            // ignore any errors
+                            continue;
+                        }
                         if (f.isFile()) {
                             progress.addBytes(f.length());
                             size += f.length();
@@ -173,6 +181,17 @@ public class DiskBiggest {
             }
         }
         return new Recursion().go(filename);
+    }
+
+    private static boolean isSymlink(File file) throws IOException {
+        File canon;
+        if (file.getParent() == null) {
+            canon = file;
+        } else {
+            File canonDir = file.getParentFile().getCanonicalFile();
+            canon = new File(canonDir, file.getName());
+        }
+        return !canon.getCanonicalFile().equals(canon.getAbsoluteFile());
     }
 
     private synchronized void enqueue(FilePath filePath) {
