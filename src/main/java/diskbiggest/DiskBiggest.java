@@ -3,6 +3,7 @@ package diskbiggest;
 import java.io.File;
 import java.util.NavigableSet;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * User: Oleksiy Pylypenko
@@ -11,25 +12,39 @@ import java.util.TreeSet;
  */
 public class DiskBiggest {
 
-    static String sizeShortcut(long size) {
-        if (size < 1024) {
-            return String.format("%dB", size);
-        } else if (size < 1024L * 1024) {
-            return String.format("%.2fKiB", size / 1024.0);
-        } else if (size < 1024L * 1024 * 1024) {
-            return String.format("%.4fMiB", size / (1024.0 * 1024.0));
-        } else if (size < 1024L * 1024 * 1024 * 1024) {
-            return String.format("%.6fGiB", size / (1024.0 * 1024.0 * 1024.0));
+    static String sizeShortcut(long size, boolean progress) {
+        if (progress) {
+            if (size < 1024) {
+                return String.format("%dB", size);
+            } else if (size < 1024L * 1024) {
+                return String.format("%.2fKiB", size / 1024.0);
+            } else if (size < 1024L * 1024 * 1024) {
+                return String.format("%.4fMiB", size / (1024.0 * 1024.0));
+            } else if (size < 1024L * 1024 * 1024 * 1024) {
+                return String.format("%.6fGiB", size / (1024.0 * 1024.0 * 1024.0));
+            } else {
+                return String.format("%.8fTiB", size / (1024.0 * 1024.0 * 1024.0 * 1024.0));
+            }
         } else {
-            return String.format("%.8fTiB", size / (1024.0 * 1024.0 * 1024.0 * 1024.0));
+            if (size < 1024) {
+                return String.format("%dB", size);
+            } else if (size < 1024L * 1024) {
+                return String.format("%.3fKiB", size / 1024.0);
+            } else if (size < 1024L * 1024 * 1024) {
+                return String.format("%.3fMiB", size / (1024.0 * 1024.0));
+            } else if (size < 1024L * 1024 * 1024 * 1024) {
+                return String.format("%.3fGiB", size / (1024.0 * 1024.0 * 1024.0));
+            } else {
+                return String.format("%.3fTiB", size / (1024.0 * 1024.0 * 1024.0 * 1024.0));
+            }
         }
     }
 
     static class FilePath implements Comparable<FilePath> {
         private long size;
-        private File filename;
+        private String filename;
 
-        public FilePath(File filename, long size) {
+        public FilePath(String filename, long size) {
             this.filename = filename;
             this.size = size;
         }
@@ -40,7 +55,7 @@ public class DiskBiggest {
 
         @Override
         public String toString() {
-            return DiskBiggest.sizeShortcut(size) + " " + filename;
+            return DiskBiggest.sizeShortcut(size, false) + " " + filename;
         }
     }
 
@@ -51,26 +66,89 @@ public class DiskBiggest {
         this.limit = limit;
     }
 
-    long totalSize;
-    long totalDirs;
-    public long iterate(File filename) {
-        System.err.print("Total scanned: " + sizeShortcut(totalSize) + " dirs: " + totalDirs + "        \r");
-        totalDirs++;
+    class Progress implements Runnable {
+        private AtomicLong totalSize = new AtomicLong();
+        private AtomicLong totalDirs = new AtomicLong();
 
-        long size = 0;
-        File[] files = filename.listFiles();
-        if (files != null) {
-            for (File f : files) {
-                if (f.isFile()) {
-                    totalSize += f.length();
-                    size += f.length();
-                } else if (f.isDirectory()) {
-                    size += iterate(f);
+        private Thread thread;
+
+        @Override
+        public void run() {
+            try {
+                while (true) {
+                    report(false);
+                    Thread.sleep(100);
                 }
+            } catch (InterruptedException e) {
+                // quit
             }
         }
-        enqueue(new FilePath(filename, size));
-        return size;
+
+        private void report(boolean ln) {
+            String msg = "Total scanned: " + sizeShortcut(totalSize.longValue(), true) +
+                    " dirs: " + totalDirs.longValue() + "        ";
+            if (ln) {
+                System.err.println(msg);
+            } else {
+                System.err.print(msg + "\r");
+            }
+        }
+
+        public void addBytes(long length) {
+            totalSize.addAndGet(length);
+        }
+
+        public void addDir(long count) {
+            totalDirs.addAndGet(count);
+        }
+
+        public void start() {
+            thread = new Thread(this);
+            thread.start();
+        }
+
+        public void stop() {
+            thread.interrupt();
+            try {
+                thread.join(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            report(true);
+        }
+    }
+
+    private Progress progress = new Progress();
+
+    public long iterate(final File filename) {
+        final String base = filename.getPath() + File.separator;
+        class Recursion {
+            long go(File currentFile) {
+                progress.addDir(1);
+
+                long size = 0;
+                File[] files = currentFile.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        if (f.isFile()) {
+                            progress.addBytes(f.length());
+                            size += f.length();
+                        } else if (f.isDirectory()) {
+                            size += go(f);
+                        }
+                    }
+                }
+
+                String path = currentFile.getPath();
+                if (path.startsWith(base)) {
+                    path = path.substring(base.length());
+                }
+
+                enqueue(new FilePath(path, size));
+                return size;
+            }
+        }
+        return new Recursion().go(filename);
     }
 
     private synchronized void enqueue(FilePath filePath) {
@@ -90,15 +168,17 @@ public class DiskBiggest {
         if (args.length >= 2) {
             n = Integer.parseInt(args[1]);
         }
-        System.out.println("Top " + n + " file and directories");
+        File root = new File(args[0]).getAbsoluteFile();
+        System.out.println("Top " + n + " file and directories in " + root);
         DiskBiggest diskBiggest = new DiskBiggest(n);
-        diskBiggest.hookCtrlBreak();
-        diskBiggest.iterate(new File(args[0]));
-        System.err.println();
-        diskBiggest.output();
+        diskBiggest.outputOnShutdown();
+        diskBiggest.progress.start();
+        diskBiggest.iterate(root);
+        diskBiggest.progress.stop();
+        // output is done in shutdown hook
     }
 
-    private void hookCtrlBreak() {
+    private void outputOnShutdown() {
         Thread hook = new Thread(new Runnable() {
             @Override
             public void run() {

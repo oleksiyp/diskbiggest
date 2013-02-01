@@ -39,6 +39,7 @@ public class DiskBiggestTest {
         str.flush();
         System.setOut(oldOut);
         String res = new String(out.toByteArray());
+        System.out.println(res);
         assertEquals("22B " + placeToMesure.getPath() + "\n", res);
     }
 
