@@ -68,8 +68,11 @@ public class DiskBiggest {
     }
 
     class Progress implements Runnable {
+        public static final int PATH_SZ = 35;
+        public static final int MSG_SZ = 78;
         private AtomicLong totalSize = new AtomicLong();
         private AtomicLong totalDirs = new AtomicLong();
+        private volatile String path;
 
         private Thread thread;
 
@@ -85,10 +88,24 @@ public class DiskBiggest {
             }
         }
 
-        private void report(boolean ln) {
+        String spaces;
+        {
+            StringBuffer buf = new StringBuffer();
+            for (int i = 0; i < MSG_SZ; i++) buf.append(' ');
+            spaces = buf.toString();
+        }
+
+        private void report(boolean fin) {
+            String p = path;
+            if (p == null) p = "";
+            if (p.length() > PATH_SZ) p = p.substring(0, PATH_SZ) + "...";
+
             String msg = "Total scanned: " + sizeShortcut(totalSize.longValue(), true) +
-                    " dirs: " + totalDirs.longValue() + "        ";
-            if (ln) {
+                    " dirs: " + totalDirs.longValue() + (!fin ? " " + p : "");
+            if (msg.length() < MSG_SZ) {
+                msg += spaces.substring(msg.length());
+            }
+            if (fin) {
                 System.err.println(msg);
             } else {
                 System.err.print(msg + "\r");
@@ -101,6 +118,10 @@ public class DiskBiggest {
 
         public void addDir(long count) {
             totalDirs.addAndGet(count);
+        }
+
+        public void setScanningPath(String path) {
+            this.path = path;
         }
 
         public void start() {
@@ -127,6 +148,13 @@ public class DiskBiggest {
             long go(File currentFile) {
                 progress.addDir(1);
 
+                String path = currentFile.getPath();
+                if (path.startsWith(base)) {
+                    path = path.substring(base.length());
+                }
+
+                progress.setScanningPath(path);
+
                 long size = 0;
                 File[] files = currentFile.listFiles();
                 if (files != null) {
@@ -138,11 +166,6 @@ public class DiskBiggest {
                             size += go(f);
                         }
                     }
-                }
-
-                String path = currentFile.getPath();
-                if (path.startsWith(base)) {
-                    path = path.substring(base.length());
                 }
 
                 enqueue(new FilePath(path, size));
