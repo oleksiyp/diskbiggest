@@ -17,11 +17,11 @@ public class DiskBiggest {
         } else if (size < 1024L * 1024) {
             return String.format("%.2fKiB", size / 1024.0);
         } else if (size < 1024L * 1024 * 1024) {
-            return String.format("%.2fMiB", size / (1024.0 * 1024.0));
+            return String.format("%.4fMiB", size / (1024.0 * 1024.0));
         } else if (size < 1024L * 1024 * 1024 * 1024) {
-            return String.format("%.2fGiB", size / (1024.0 * 1024.0 * 1024.0));
+            return String.format("%.6fGiB", size / (1024.0 * 1024.0 * 1024.0));
         } else {
-            return String.format("%.2fTiB", size / (1024.0 * 1024.0 * 1024.0 * 1024.0));
+            return String.format("%.8fTiB", size / (1024.0 * 1024.0 * 1024.0 * 1024.0));
         }
     }
 
@@ -51,12 +51,18 @@ public class DiskBiggest {
         this.limit = limit;
     }
 
+    long totalSize;
+    long totalDirs;
     public long iterate(File filename) {
+        System.err.print("Total scanned: " + sizeShortcut(totalSize) + " dirs: " + totalDirs + "        \r");
+        totalDirs++;
+
         long size = 0;
         File[] files = filename.listFiles();
         if (files != null) {
             for (File f : files) {
                 if (f.isFile()) {
+                    totalSize += f.length();
                     size += f.length();
                 } else if (f.isDirectory()) {
                     size += iterate(f);
@@ -67,7 +73,7 @@ public class DiskBiggest {
         return size;
     }
 
-    private void enqueue(FilePath filePath) {
+    private synchronized void enqueue(FilePath filePath) {
         if (set.size() >= limit) {
             set.pollLast();
         }
@@ -86,11 +92,24 @@ public class DiskBiggest {
         }
         System.out.println("Top " + n + " file and directories");
         DiskBiggest diskBiggest = new DiskBiggest(n);
+        diskBiggest.hookCtrlBreak();
         diskBiggest.iterate(new File(args[0]));
+        System.err.println();
         diskBiggest.output();
     }
 
-    public void output() {
+    private void hookCtrlBreak() {
+        Thread hook = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                System.err.println();
+                output();
+            }
+        });
+        Runtime.getRuntime().addShutdownHook(hook);
+    }
+
+    public synchronized void output() {
         for (FilePath path : set) {
             System.out.println(path);
         }
